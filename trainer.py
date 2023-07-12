@@ -78,8 +78,7 @@ class Trainer:
                     np.array(self.Y_train[..., np.newaxis]))
 
         # Initialize params and optimizer state
-        layer_dims = self.run.config['layer_dims']
-        params = self.transform.init(rng, batch.input_states, layer_dims)
+        params = self.transform.init(rng, batch.input_states, self.run.config)
         opt_state = self.optimizer.init(params)
 
         return TrainState(params, opt_state), batch
@@ -89,7 +88,7 @@ class Trainer:
         """Loss function
         """
         num_classes = self.run.config['num_classes']
-        layer_dims = self.run.config['layer_dims']
+        # layer_dims = self.run.config['layer_dims']
 
         # Constructs a one-hot encoding of the true output states
         true_output_states = jnp.squeeze(jax.nn.one_hot(batch.output_states, 
@@ -97,7 +96,7 @@ class Trainer:
         labels = np.reshape(true_output_states, newshape=(-1, num_classes))
 
         # Get the output of the model and convert the shapes
-        network_output = self.transform.apply(params, batch.input_states, layer_dims)    
+        network_output = self.transform.apply(params, batch.input_states, self.run.config)    
         logits = np.reshape(network_output, newshape=(-1, num_classes))
         
         loss = optax.softmax_cross_entropy(logits=logits, labels=labels)
@@ -158,7 +157,9 @@ class Trainer:
     
         self.run.log({"network_predictions": table})
 
-        # self.run.finish()
+        # Close the run
+        self.run.finish()
+
         # Set globals in case object wants to use them
         self.state = state
         self.loss = loss
@@ -180,7 +181,7 @@ class Trainer:
             :param return_logits: bool, whether the function should just 
             return the network logits or convert to predictions
         """
-        layer_dims = self.run.config['layer_dims']
+        # layer_dims = self.run.config['layer_dims']
         wspan, hspan = self.run.config['wspan'], self.run.config['hspan']
 
         # Use object's states if passed-in ones are None
@@ -189,7 +190,7 @@ class Trainer:
         if input_states is None:
             input_states = self.batch.input_states
         
-        logits = self.transform.apply(state.params, input_states, layer_dims)
+        logits = self.transform.apply(state.params, input_states, self.run.config)
         preds = logit_to_preds(logits, shape=(-1, wspan, hspan))   
         if return_logits:
             return logits, preds
