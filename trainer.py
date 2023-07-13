@@ -21,7 +21,7 @@ import optax
 
 import wandb
 import matplotlib.pyplot as plt
-from typing import NamedTuple
+from typing import NamedTuple, Optional, Sequence
 from tqdm import tqdm
 import functools
 
@@ -43,9 +43,14 @@ class Trainer:
         config,  # a config dictionary to use in the wandb run instance
         X_train,
         Y_train,
+        padding: str = None,  # defines the boundary conditions. If none, default to the network default
+        n_iter: int = 1,  # defines for how many iterations to apply the network
+        tags: Optional[Sequence] = None,  # for wandb, optional, can add a list of strings as tags
     ):
         self.X_train = X_train
         self.Y_train = Y_train
+        self.padding = padding
+        self.n_iter = n_iter
 
         # Create the pure network transformation
         self.transform = hk.without_apply_rng(hk.transform(network_fn))
@@ -58,9 +63,10 @@ class Trainer:
         wandb.login()
         self.run = wandb.init(
             project='convoca_jax',
-            notes='Created group',
-            group='preliminary_plots',
-            config=config
+            notes='Start Other',
+            group='other',
+            config=config,
+            tags=tags,
         )
 
     # First make an init function to initialize params and opt state
@@ -78,7 +84,7 @@ class Trainer:
                     np.array(self.Y_train[..., np.newaxis]))
 
         # Initialize params and optimizer state
-        params = self.transform.init(rng, batch.input_states, self.run.config)
+        params = self.transform.init(rng, batch.input_states, self.run.config, self.n_iter)
         opt_state = self.optimizer.init(params)
 
         return TrainState(params, opt_state), batch
@@ -96,7 +102,7 @@ class Trainer:
         labels = np.reshape(true_output_states, newshape=(-1, num_classes))
 
         # Get the output of the model and convert the shapes
-        network_output = self.transform.apply(params, batch.input_states, self.run.config)    
+        network_output = self.transform.apply(params, batch.input_states, self.run.config, self.n_iter)    
         logits = np.reshape(network_output, newshape=(-1, num_classes))
         
         loss = optax.softmax_cross_entropy(logits=logits, labels=labels)
@@ -147,10 +153,13 @@ class Trainer:
 
                 # Log images to the table
                 ind = np.random.randint(len(preds))
+                # ind = len(preds)-1
                 table.add_data(
                     wandb.Image(plt.imshow(batch.input_states[ind], cmap='gray')),
                     wandb.Image(plt.imshow(preds[ind], cmap='gray')),
                     wandb.Image(plt.imshow(batch.output_states[ind], cmap='gray')),
+                    # wandb.Image(plt.hist(network_output[..., 0])),
+                    # wandb.Image(plt.hist(network_output[..., 1])),
                     epoch
                 )
                 plt.close()
@@ -197,7 +206,7 @@ class Trainer:
         else:
             return preds
     
-    def evaluate(self, state: TrainState = None, batch: Batch = None) -> jax.Array:
+    def evaluate(self, state: TrainState = None, batch: Batch = None, return_logits=False) -> jax.Array:
         """Get model outputs and evaluate model performance on a batch
             of data
     
@@ -226,8 +235,11 @@ class Trainer:
         
         # Compute the loss 
         loss = optax.softmax_cross_entropy(logits=logits, labels=labels) 
-    
-        return jnp.mean(loss, axis=1), preds
+
+        if return_logits:
+            return jnp.mean(loss, axis=1), logits, preds    
+        else:
+            return jnp.mean(loss, axis=1), preds
         
 
 
